@@ -1,22 +1,22 @@
-CPUnifi
+#CPUnifi
 
 Joe Dillig - Check Point Software 2019
 Tool used to integrate Ubiquiti Unifi Client data into Check Point's Identity Awareness API
 
-Tool Requirements:
+#Tool Requirements:
 - Host machine supporting Python 2.7 and the following python libraries (requests, json, os, urllib3, pickle, argparse)
 - Cronjob or similar setup to run this script every X min of interval
 
-Check Point Requirements:
+#Check Point Requirements:
 - Gateway(s) and Management server that support the Identity Awareness API
 - Access Roles Created and placed in the rule base (Name Format: "Unifi_SITENAME" or "Unifi_SITENAME_SSIDNAME") 
 
-Ubiquiti Requirements:
+#Ubiquiti Requirements:
 - Unifi Controller or Cloud Key always available for Unifi API use
 - Read Only api user account (Read/Write Required for SmartEvent Integration)
 
 
-Tool Usage:
+#Tool Usage:
 
 - List all Unifi Sites and Details
   ./CPUnifi.py -list
