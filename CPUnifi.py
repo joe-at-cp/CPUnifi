@@ -3,24 +3,31 @@
 #CPUnifi
 #Check Point and Ubuiquiti Unifi SDN Integration
 #Joe Dillig - Check Point Software 2019 - dillig@checkpoint.com
+#Version 1.1
 
-import requests, json, os, urllib3, pickle, argparse
+import requests, json, os, urllib3, pickle, argparse, datetime
 
 #Disable the SSL Cert warning on each requests call
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def globalconst():
-    
+
     global CP_MANAGEMENT_IP
     global CP_MANAGEMENT_USER
     global CP_MANAGEMENT_PASS
     global CP_IA_GW
     global CP_IA_GW_SECRET
+    global CP_IA_SESSION_TIMEOUT
     global UNIFI_CONTROLLER
     global UNIFI_USER
     global UNIFI_PASS
     global UNIFI_COOKIE
+    global UNIFI_SITE_FRIENDLY_NAME
+    global LOG
+
+    #CPUnifi Run Log
+    LOG="CPUnifi.log"
 
     #Check Point Settings
     CP_MANAGEMENT_IP = "192.168.1.2"
@@ -28,6 +35,7 @@ def globalconst():
     CP_MANAGEMENT_PASS = "api_user_password"
     CP_IA_GW = ["192.168.1.3"] #Comma seperated list of gateways to create IDs on
     CP_IA_GW_SECRET = "IDAPI_secret"
+    CP_IA_SESSION_TIMEOUT=300
 
     #Unifi Settings
     UNIFI_CONTROLLER="https://192.168.1.1:8443"
@@ -47,10 +55,11 @@ def load_cookies(filename):
 
 #Add Wireless IDA Client
 def add_ida_client(CP_IA_GW,CP_IA_GW_SECRET,UNIFI_SITE,UNIFI_SSID,CLIENT_IP,CLIENT_NAME,CLIENT_MAC,CLIENT_DESCRIPTION):
+    UNIFI_SITE_FRIENDLY_NAME=get_site_friendly_name(UNIFI_SITE)
     for CP_GW in CP_IA_GW:
         try:
             headers = {'Content-type': 'application/json'}
-            data = {"shared-secret":CP_IA_GW_SECRET,"ip-address":CLIENT_IP,"machine":CLIENT_NAME,"identity-source":"CPUnifi Script","domain":"Unifi_Site_"+UNIFI_SITE+"_"+CLIENT_DESCRIPTION,"calculate-roles":0,"session-timeout":300,"fetch-machine-groups":0,"roles":["Unifi_"+UNIFI_SITE+"_"+UNIFI_SSID]}
+            data = {"shared-secret":CP_IA_GW_SECRET,"ip-address":CLIENT_IP,"machine":CLIENT_NAME,"identity-source":"CPUnifi Script","domain":"Unifi_Site_"+UNIFI_SITE_FRIENDLY_NAME+"_"+CLIENT_DESCRIPTION,"calculate-roles":0,"session-timeout":CP_IA_SESSION_TIMEOUT,"fetch-machine-groups":0,"roles":["Unifi_"+UNIFI_SITE+"_"+UNIFI_SSID]}
             r = requests.get('https://'+CP_GW+'/_IA_API/add-identity', data=json.dumps(data), headers=headers, verify=False)
             pdpreturn = json.loads(r.text)
             #print json.dumps(pdpreturn, indent=4, sort_keys=True)
@@ -61,10 +70,11 @@ def add_ida_client(CP_IA_GW,CP_IA_GW_SECRET,UNIFI_SITE,UNIFI_SSID,CLIENT_IP,CLIE
 
 #Add Wired IDA Client
 def add_wired_ida_client(CP_IA_GW,CP_IA_GW_SECRET,UNIFI_SITE,CLIENT_IP,CLIENT_NAME,CLIENT_MAC,CLIENT_DESCRIPTION):
+    UNIFI_SITE_FRIENDLY_NAME=get_site_friendly_name(UNIFI_SITE)
     for CP_GW in CP_IA_GW:
         try:
             headers = {'Content-type': 'application/json'}
-            data = {"shared-secret":CP_IA_GW_SECRET,"ip-address":CLIENT_IP,"machine":CLIENT_NAME,"identity-source":"CPUnifi Script","domain":"Unifi_Site_"+UNIFI_SITE+"_"+CLIENT_DESCRIPTION,"calculate-roles":0,"session-timeout":300,"fetch-machine-groups":0,"roles":["Unifi_"+UNIFI_SITE]}
+            data = {"shared-secret":CP_IA_GW_SECRET,"ip-address":CLIENT_IP,"machine":CLIENT_NAME,"identity-source":"CPUnifi Script","domain":"Unifi_Site_"+UNIFI_SITE_FRIENDLY_NAME+"_"+CLIENT_DESCRIPTION,"calculate-roles":0,"session-timeout":CP_IA_SESSION_TIMEOUT,"fetch-machine-groups":0,"roles":["Unifi_"+UNIFI_SITE]}
             r = requests.get('https://'+CP_GW+'/_IA_API/add-identity', data=json.dumps(data), headers=headers, verify=False)
             pdpreturn = json.loads(r.text)
             #print json.dumps(pdpreturn, indent=4, sort_keys=True)
@@ -76,7 +86,9 @@ def add_wired_ida_client(CP_IA_GW,CP_IA_GW_SECRET,UNIFI_SITE,CLIENT_IP,CLIENT_NA
 
 #List Wireless Clients From Specific Site and SSID
 def list_wireless_clients_for_ssid(UNIFI_SITE,UNIFI_SSID):
-    print('[+] Wireless Clients For SSID: '+UNIFI_SSID+" (Site: "+UNIFI_SITE+")")
+    UNIFI_SITE_FRIENDLY_NAME=get_site_friendly_name(UNIFI_SITE)
+    timestamp=datetime.datetime.now().strftime("%A, %d. %B %Y %I:%M%p")
+    print('[+] Wireless Clients For SSID: '+UNIFI_SSID+" (Site: "+UNIFI_SITE+" - "+UNIFI_SITE_FRIENDLY_NAME+") - "+datetime.datetime.now().strftime("%A, %d. %B %Y %I:%M%p"))
     headers = {'Content-type': 'application/json'}
     data = {}
     r = requests.get(UNIFI_CONTROLLER+'/api/s/'+UNIFI_SITE+'/stat/sta', data=json.dumps(data), cookies=load_cookies(UNIFI_COOKIE), headers=headers, verify=False)
@@ -93,6 +105,9 @@ def list_wireless_clients_for_ssid(UNIFI_SITE,UNIFI_SSID):
                 if not "hostname" in CLIENT:
                     CLIENT['hostname'] = "UnknownClient"
 
+                if "name" in CLIENT:
+                    CLIENT['hostname'] = CLIENT['name']
+
                 if "ip" in CLIENT:
                     print('    [>] '+UNIFI_SSID+','+CLIENT['hostname']+','+CLIENT['ip']+','+CLIENT['mac']) #CSV Output
                     #print("DEBUG: CREATE_IDA_ID="+str(CREATE_IDA_ID))
@@ -106,7 +121,8 @@ def list_wireless_clients_for_ssid(UNIFI_SITE,UNIFI_SSID):
 
 #List Wireless Guests From Specific Site and SSID
 def list_wireless_guests_for_ssid(UNIFI_SITE,UNIFI_SSID):
-    print('[+] Wireless Guest Clients For SSID: '+UNIFI_SSID+" (Site: "+UNIFI_SITE+")")
+    UNIFI_SITE_FRIENDLY_NAME=get_site_friendly_name(UNIFI_SITE)
+    print('[+] Wireless Guest Clients For SSID: '+UNIFI_SSID+" (Site: "+UNIFI_SITE+" - "+UNIFI_SITE_FRIENDLY_NAME+") - "+datetime.datetime.now().strftime("%A, %d. %B %Y %I:%M%p"))
     headers = {'Content-type': 'application/json'}
     data = {}
     r = requests.get(UNIFI_CONTROLLER+'/api/s/'+UNIFI_SITE+'/stat/sta', data=json.dumps(data), cookies=load_cookies(UNIFI_COOKIE), headers=headers, verify=False)
@@ -123,6 +139,9 @@ def list_wireless_guests_for_ssid(UNIFI_SITE,UNIFI_SSID):
                 if not "hostname" in CLIENT:
                     CLIENT['hostname'] = "UnknownClient"
 
+                if "name" in CLIENT:
+                    CLIENT['hostname'] = CLIENT['name']
+
                 if "ip" in CLIENT:
                     print('    [>] '+UNIFI_SSID+','+CLIENT['hostname']+','+CLIENT['ip']+','+CLIENT['mac']) #CSV Output
                     #print("DEBUG: CREATE_IDA_ID="+str(CREATE_IDA_ID))
@@ -136,7 +155,8 @@ def list_wireless_guests_for_ssid(UNIFI_SITE,UNIFI_SSID):
 
 #List Wired Clients From Specific Site
 def list_wired_clients_for_site(UNIFI_SITE):
-    print('[+] Wired Clients For Site: '+UNIFI_SITE)
+    UNIFI_SITE_FRIENDLY_NAME=get_site_friendly_name(UNIFI_SITE)
+    print('[+] Wired Clients For Site: '+UNIFI_SITE+' ('+UNIFI_SITE_FRIENDLY_NAME+') - '+datetime.datetime.now().strftime("%A, %d. %B %Y %I:%M%p"))
     headers = {'Content-type': 'application/json'}
     data = {}
     r = requests.get(UNIFI_CONTROLLER+'/api/s/'+UNIFI_SITE+'/stat/sta', data=json.dumps(data), cookies=load_cookies(UNIFI_COOKIE), headers=headers, verify=False)
@@ -152,6 +172,9 @@ def list_wired_clients_for_site(UNIFI_SITE):
                 if not "hostname" in CLIENT:
                     CLIENT['hostname'] = "UnknownClient"
 
+                if "name" in CLIENT:
+                    CLIENT['hostname'] = CLIENT['name']
+
                 if "ip" in CLIENT:
                     print('    [>] '+UNIFI_SITE+','+CLIENT['hostname']+','+CLIENT['ip']+','+CLIENT['mac']) #CSV Output
                     if CREATE_IDA_ID == True:
@@ -162,7 +185,8 @@ def list_wired_clients_for_site(UNIFI_SITE):
 
 #List Wired Guest Clients From Specific Site
 def list_wired_guest_clients_for_site(UNIFI_SITE):
-    print('[+] Wired Guest Clients For Site: '+UNIFI_SITE)
+    UNIFI_SITE_FRIENDLY_NAME=get_site_friendly_name(UNIFI_SITE)
+    print('[+] Wired Guest Clients For Site: '+UNIFI_SITE+' - '+datetime.datetime.now().strftime("%A, %d. %B %Y %I:%M%p"))
     headers = {'Content-type': 'application/json'}
     data = {}
     r = requests.get(UNIFI_CONTROLLER+'/api/s/'+UNIFI_SITE+'/stat/sta', data=json.dumps(data), cookies=load_cookies(UNIFI_COOKIE), headers=headers, verify=False)
@@ -177,6 +201,9 @@ def list_wired_guest_clients_for_site(UNIFI_SITE):
 
                 if not "hostname" in CLIENT:
                     CLIENT['hostname'] = "UnknownClient"
+
+                if "name" in CLIENT:
+                    CLIENT['hostname'] = CLIENT['name']
 
                 if "ip" in CLIENT:
                     print('    [>] '+UNIFI_SITE+','+CLIENT['hostname']+','+CLIENT['ip']+','+CLIENT['mac']) #CSV Output
@@ -195,9 +222,23 @@ def list_unifi_sites():
 
     for SITE in UNIFI_SITES['data']:
         print('    [>] Site Name: '+SITE['name'])
-        print('        Site Description: '+SITE['desc']) 
-        print('        Site ID: '+SITE['_id']) 
-        print('        API User Role: '+SITE['role']) 
+        print('        Site Description: '+SITE['desc'])
+        print('        Site ID: '+SITE['_id'])
+        print('        API User Role: '+SITE['role'])
+
+
+#Get Unifi Site Friendly Name
+def get_site_friendly_name(UNIFI_SITE):
+    headers = {'Content-type': 'application/json'}
+    data = {}
+    r = requests.get(UNIFI_CONTROLLER+'/api/self/sites', data=json.dumps(data), cookies=load_cookies(UNIFI_COOKIE), headers=headers, verify=False)
+    UNIFI_SITES = json.loads(r.text)
+
+    for SITE in UNIFI_SITES['data']:
+        if SITE['name'] == UNIFI_SITE:
+            UNIFI_SITE_FRIENDLY_NAME = SITE['desc']
+    return UNIFI_SITE_FRIENDLY_NAME
+
 
 
 
@@ -214,7 +255,7 @@ def main():
     global UNIFI_SITE
 
     #Process Input Parameters
-    parser = argparse.ArgumentParser(prog='Check Point Unifi Tool (Alpha 1.0)', usage='./CPUnifi.py [-list] [-site (name)] [-ssid (name)] [-guests] [-ida] [-hostobj]')
+    parser = argparse.ArgumentParser(prog='Check Point Unifi Tool 1.1', usage='./CPUnifi.py [-list] [-site (name)] [-ssid (name)] [-guests] [-ida] [-hostobj]')
 
     #Arguments
     parser.add_argument('-list', '--list', help='Lists all Unifi Sites', action='store_true', required=False)
@@ -222,7 +263,7 @@ def main():
     parser.add_argument('-ssid', '--ssid', help='Unifi SSID or "all"', required=False)
     parser.add_argument('-guests', '--guests', help='Unifi Site Guests', action='store_true', required=False)
     parser.add_argument('-block', '--block', help='Block Unifi Client With MAC Address', required=False)
-    parser.add_argument('-unblock', '--unblock', help='Unblocks Unifi Client with MAC Address', required=False) 
+    parser.add_argument('-unblock', '--unblock', help='Unblocks Unifi Client with MAC Address', required=False)
     parser.add_argument('-event', '--event', help='Check Point SmartEvent Event', required=False)
     parser.add_argument('-ida', '--ida', help='Create Check Point IDA Identities', action='store_true', required=False)
     parser.add_argument('-hostobj', '--hostobj', help='Create Check Point Host Objects', action='store_true', required=False)
@@ -269,7 +310,7 @@ def main():
     if UNIFI_SITE and not UNIFI_SSID and UNIFI_GUESTS == True:
         #Wired Guest Clients
         list_wired_guest_clients_for_site(UNIFI_SITE)
-    
+
     if UNIFI_SITE and UNIFI_SSID and UNIFI_GUESTS == False:
         #Wireless Clients
         list_wireless_clients_for_ssid(UNIFI_SITE,UNIFI_SSID)
@@ -287,7 +328,5 @@ def main():
     os.remove(UNIFI_COOKIE)
 
 
-
 globalconst() #Load Global Const
 main() #Run Main
-
